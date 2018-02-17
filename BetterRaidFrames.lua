@@ -419,8 +419,6 @@ function BetterRaidFrames:OnDocumentReady()
 	Apollo.RegisterEventHandler("ChangeWorld", 								"OnChangeWorld", self)
 	Apollo.RegisterTimerHandler("TrackSavedCharactersTimer",				"TrackSavedCharacters", self)
 	
-	-- Required for saving frame location across sessions
-	Apollo.RegisterEventHandler("WindowManagementReady", 	"OnWindowManagementReady", self)
 	
 	-- Load TearOff addon
 	self.BetterRaidFramesTearOff = Apollo.GetAddon("BetterRaidFramesTearOff")
@@ -428,16 +426,6 @@ function BetterRaidFrames:OnDocumentReady()
 	-- GeminiColor
 	self.GeminiColor = Apollo.GetPackage("GeminiColor").tPackage
 	
-	-- Sets the party frame location once windows are ready.
-	function BetterRaidFrames:OnWindowManagementReady()
-		Event_FireGenericEvent("WindowManagementAdd", {wnd = self.wndMain, strName = "BetterRaidFrames" })
-		self:LockFrameHelper(self.settings.bLockFrame)
-		self:NumColumnsHelper()
-		self:NumRowsHelper()
-		self:UpdateBarArtTimer()
-		self:UpdateBoostFoodTimer()
-		self:UpdateMainUpdateTimer()
-	end
 
 	self.wndMain = Apollo.LoadForm(self.xmlDoc, "BetterRaidFramesForm", "FixedHudStratum", self)
     self.wndMain:FindChild("RaidConfigureBtn"):AttachWindow(self.wndMain:FindChild("RaidOptions"))
@@ -503,8 +491,24 @@ function BetterRaidFrames:OnDocumentReady()
 		self:OnCharacterCreated()
 	end
 	
+	-- Required for saving frame location across sessions
+	Apollo.RegisterEventHandler("WindowManagementReady", 	"OnWindowManagementReady", self)
+	self:OnWindowManagementReady()
+
 	-- Refresh settings visually
 	self:RefreshSettings()
+end
+
+-- Sets the party frame location once windows are ready.
+function BetterRaidFrames:OnWindowManagementReady()
+	Event_FireGenericEvent("WindowManagementRegister", {wnd = self.wndMain, strName = "BetterRaidFrames" })
+	Event_FireGenericEvent("WindowManagementAdd", {wnd = self.wndMain, strName = "BetterRaidFrames" })
+	self:LockFrameHelper(self.settings.bLockFrame)
+	self:NumColumnsHelper()
+	self:NumRowsHelper()
+	self:UpdateBarArtTimer()
+	self:UpdateBoostFoodTimer()
+	self:UpdateMainUpdateTimer()
 end
 
 function BetterRaidFrames:recursiveCopyTable(from, to)
