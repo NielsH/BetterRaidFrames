@@ -26,13 +26,15 @@ local kBoostBuffs = {
   "Insight Boost",
   "Moxie Boost",
   "Tech Boost",
+  "Focus Recovery Boost",
   -- French
   "Boost de Brutalité",
   "Boost de Finesse",
   "Boost de Vitalité",
   "Boost d'Acuité",
   "Boost de Mojo",
-  "Boost technique", -- Seems to be the correct name, weird that it seems to follow a different naming convention than the others
+  "Boost technique",
+  "Boost de Régénération de concentration",
   -- German
   "Brutalitätsboost",
   "Finesse-Boost",
@@ -40,6 +42,7 @@ local kBoostBuffs = {
   "Wahrnehmungsboost",
   "Mumm-Boost",
   "Tech-Boost",
+  "Fokuserneuerungsboost",
 }
 
 local kFoodBuffs = {
