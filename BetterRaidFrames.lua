@@ -6,6 +6,8 @@
 require "Window"
 require "bit32"
 require "MatchMakingLib"
+require "ICComm"
+require "ICCommLib"
 
 local BetterRaidFrames = {}
 
@@ -160,6 +162,7 @@ local ktRowSizeIndexToPixels = {
 local ktGeneralCategories = {Apollo.GetString("RaidFrame_Members")}
 local ktRoleCategoriesToUse = {Apollo.GetString("RaidFrame_Tanks"), Apollo.GetString("RaidFrame_Healers"), Apollo.GetString("RaidFrame_DPS")}
 local ktClassCategoriesToUse = {Apollo.GetString("ClassEngineer"), Apollo.GetString("ClassESPER"), Apollo.GetString("ClassMedic"), Apollo.GetString("ClassSpellslinger"), Apollo.GetString("ClassStalker"), Apollo.GetString("ClassWarrior")}
+local strCustomCategoriesDefault = "Raid"
 
 local knReadyCheckTimeout = 60 -- in seconds
 
@@ -208,6 +211,7 @@ local DefaultSettings = {
   bConsistentIconOffset               = false,
   bShowRaidByRole                     = true,
   bShowRaidByClass                    = false,
+  bShowRaidByCustomCategories         = false,
   bOrderAlphabetically                = true,
   
   -- Custom settings via /brf colors
@@ -255,6 +259,10 @@ local DefaultSettings = {
 
   -- /brf rename
   tRenameCharacters                   = {},
+
+  -- Custom raid frame categories
+  ktCustomCategoriesToUse             = {strCustomCategoriesDefault},
+  ktCustomCategoryAssignments         = {},
 }
 
 function BetterRaidFrames:new(o)
@@ -399,6 +407,9 @@ function BetterRaidFrames:OnDocumentReady()
 
   Apollo.RegisterEventHandler("ChangeWorld"                            , "OnChangeWorld"              , self)
   Apollo.RegisterTimerHandler("TrackSavedCharactersTimer"              , "TrackSavedCharacters"       , self)
+
+  -- For Syncing groups with custom categories
+  self.timerjoinICCommChannel = ApolloTimer.Create(5, false, "JoinICCommChannel", self)
   
   -- Load TearOff addon
   self.BetterRaidFramesTearOff = Apollo.GetAddon("BetterRaidFramesTearOff")
@@ -511,6 +522,44 @@ function BetterRaidFrames:in_array(array, item)
   return false
 end
 
+function BetterRaidFrames:Serialize(t)
+  local type = type(t)
+  if type == "string" then
+    return ("%q"):format(t)
+  elseif type == "table" then
+    local tbl = {"{"}
+    local indexed = #t > 0
+    local hasValues = false
+    for k, v in pairs(t) do
+      hasValues = true
+      table.insert(tbl, indexed and self:Serialize(v) or "[" .. self:Serialize(k) .. "]=" .. self:Serialize(v))
+      table.insert(tbl, ",")
+    end
+    if hasValues then
+      table.remove(tbl, #tbl)
+    end
+    table.insert(tbl, "}")
+    return table.concat(tbl)
+  end
+  return tostring(t)
+end
+
+function BetterRaidFrames:Deserialize(str)
+  local func = loadstring("return {" .. str .. "}")
+  if func then
+    setfenv(func, {})
+    local succeeded, ret = pcall(func)
+    if succeeded then
+      return unpack(ret)
+    end
+  end
+  return nil
+end
+
+function BetterRaidFrames:GetAddonVersion()
+  return XmlDoc.CreateFromFile("toc.xml"):ToTable().Version
+end
+
 function BetterRaidFrames:RefreshSettings()
   -- Settings related to the default customize options
   if self.settings.bShowIcon_Leader ~= nil then
@@ -571,6 +620,8 @@ function BetterRaidFrames:RefreshSettings()
     self.wndConfig:FindChild("Button_ShowRaidByRole"):SetCheck(self.settings.bShowRaidByRole) end
   if self.settings.bShowRaidByClass ~= nil then
     self.wndConfig:FindChild("Button_ShowRaidByClass"):SetCheck(self.settings.bShowRaidByClass) end
+  if self.settings.bShowRaidByCustomCategories ~= nil then
+    self.wndConfig:FindChild("Button_ShowRaidByCustomCategories"):SetCheck(self.settings.bShowRaidByCustomCategories) end
   if self.settings.bOrderAlphabetically ~= nil then
     self.wndConfig:FindChild("Button_OrderAlphabetically"):SetCheck(self.settings.bOrderAlphabetically) end
 
@@ -785,6 +836,7 @@ end
 
 function BetterRaidFrames:OnGroup_Join()
   if not GroupLib.InRaid() then return end
+  self:ShareAddonVersion()
   self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral)
 end
 
@@ -861,6 +913,8 @@ function BetterRaidFrames:BuildAllFrames()
     tCategoriesToUse = ktRoleCategoriesToUse
   elseif self.settings.bShowRaidByClass then
     tCategoriesToUse = ktClassCategoriesToUse
+  elseif self.settings.bShowRaidByCustomCategories then
+    tCategoriesToUse = self.settings.ktCustomCategoriesToUse
   end
 
   local nInvalidOrDeadMembers = 0
@@ -1782,6 +1836,8 @@ function BetterRaidFrames:DestroyMemberWindows(nMemberIdx)
     tCategoriesToUse = {Apollo.GetString("RaidFrame_Tanks"), Apollo.GetString("RaidFrame_Healers"), Apollo.GetString("RaidFrame_DPS")}
   elseif self.settings.bShowRaidByClass then
     tCategoriesToUse = ktClassCategoriesToUse
+  elseif self.settings.bShowRaidByCustomCategories then
+    tCategoriesToUse = self.settings.ktCustomCategoriesToUse
   end
 
   for key, strCurrCategory in pairs(tCategoriesToUse) do
@@ -1886,16 +1942,171 @@ end
 
 function BetterRaidFrames:HelperVerifyMemberCategory(strCurrCategory, tMemberData)
   local bResult = true
-  if strCurrCategory == Apollo.GetString("RaidFrame_Tanks") then
+  if strCurrCategory == Apollo.GetString("RaidFrame_Tanks") and not self.settings.bShowRaidByCustomCategories then
     bResult =  tMemberData.bTank
-  elseif strCurrCategory == Apollo.GetString("RaidFrame_Healers") then
+  elseif strCurrCategory == Apollo.GetString("RaidFrame_Healers") and not self.settings.bShowRaidByCustomCategories  then
     bResult = tMemberData.bHealer
-  elseif strCurrCategory == Apollo.GetString("RaidFrame_DPS") then
+  elseif strCurrCategory == Apollo.GetString("RaidFrame_DPS") and not self.settings.bShowRaidByCustomCategories  then
     bResult = not tMemberData.bTank and not tMemberData.bHealer
-  elseif self:in_array(ktClassCategoriesToUse, strCurrCategory) then
+  elseif self:in_array(ktClassCategoriesToUse, strCurrCategory) and not not self.settings.bShowRaidByCustomCategories then
     bResult = strCurrCategory == tMemberData.strClassName
+  elseif self:in_array(self.settings.ktCustomCategoriesToUse, strCurrCategory) and self.settings.bShowRaidByCustomCategories then
+    local strCharacterName = string.lower(tMemberData.strCharacterName)
+    bResult = (self.settings.ktCustomCategoryAssignments[strCharacterName] and self.settings.ktCustomCategoryAssignments[strCharacterName] == strCurrCategory) or (strCurrCategory == strCustomCategoriesDefault and not self.settings.ktCustomCategoryAssignments[strCharacterName] and true)
   end
   return bResult
+end
+
+function BetterRaidFrames:MapMemberNamesToId()
+  local memberNames = {}
+  local memberNameToId = {}
+  local i = 1
+  while i <= GroupLib.GetMemberCount() do
+    table.insert(memberNames, string.lower(GroupLib.GetGroupMember(i).strCharacterName))
+    i = i + 1
+  end
+  
+  -- Sorted member names for short unique ids across clients!
+  table.sort(memberNames)
+  for i, name in ipairs(memberNames) do
+    memberNameToId[name] = i
+  end
+  return memberNameToId, memberNames
+end
+
+function BetterRaidFrames:ImportGroupLayout(tbl)
+  if not tbl or type(tbl) ~= "table" or #tbl == 0 then
+      return
+  end
+  local memberNameToId, idToMemberName = self:MapMemberNamesToId()
+  local currentGroupIndex = 1
+  local count = 1
+  local ktCustomCategoriesToUse = {strCustomCategoriesDefault}
+  local ktCustomCategoryAssignments = {}
+
+  for i, val in ipairs(tbl) do
+    if type(val) == "string" then
+      if not (tbl[count + 1]) or (tbl[count + 1] and type(tbl[count + 1]) == "number") then
+        -- Don't add duplicates to the table
+        if not self:in_array(ktCustomCategoriesToUse, val) then
+          table.insert(ktCustomCategoriesToUse, val)
+          currentGroupIndex = currentGroupIndex + 1
+        end
+      end
+    elseif type(val) == "number" then
+      ktCustomCategoryAssignments[string.lower(idToMemberName[val])] = ktCustomCategoriesToUse[currentGroupIndex]
+    end
+    count = count + 1
+  end
+  self.settings.ktCustomCategoriesToUse = ktCustomCategoriesToUse
+  self.settings.ktCustomCategoryAssignments = ktCustomCategoryAssignments
+  self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
+end
+
+function BetterRaidFrames:GetCustomCategoryGroupLayout()
+  local layout = {}
+  local memberNameToId = self:MapMemberNamesToId()
+  for key, strCurrCategory in pairs(self.settings.ktCustomCategoriesToUse) do
+    table.insert(layout, strCurrCategory)
+    local members = {}
+    local i = 1
+    while i <= GroupLib.GetMemberCount() do
+      local tMemberData = GroupLib.GetGroupMember(i)
+      if self:HelperVerifyMemberCategory(strCurrCategory, tMemberData) then
+        table.insert(members, memberNameToId[string.lower(tMemberData.strCharacterName)])
+      end
+      table.sort(members)
+      for _, id in ipairs(members) do
+        if not self:in_array(layout, memberNameToId[string.lower(tMemberData.strCharacterName)]) then
+          table.insert(layout, memberNameToId[string.lower(tMemberData.strCharacterName)])
+        end
+      end
+      i = i + 1
+    end
+  end
+  return layout
+end
+
+function BetterRaidFrames:ShareAddonVersion()
+  self.addonVersionAnnounceTimer = ApolloTimer.Create(2, false, "OnShareAddonVersionTimer", self)
+end
+
+function BetterRaidFrames:OnShareAddonVersionTimer()
+  if self.channel and self.channel:IsReady() then
+    local tMemberData = self:GetGroupLeader()
+    self.channel:SendPrivateMessage(tMemberData.strCharacterName, self:Serialize({version = self:GetAddonVersion()}))
+  end
+end
+
+function BetterRaidFrames:OnICCommMessageReceived(channel, strMessage, idMessage)
+  local message = self:Decode(strMessage)
+  if type(message) ~= "table" then
+      return
+  end
+  if self:IsLeader(idMessage) then
+      if message.layout then
+        self:ImportGroupLayout(message.layout)
+      elseif message.defaultGroups then
+        self:OnCustomCategoryClearGroups()
+      end
+  end
+end
+
+function BetterRaidFrames:OnICCommSendMessageResult(iccomm, eResult, idMessage)
+  self:CPrint("DEBUG - OnICCommSendMessageResult")
+end
+
+function BetterRaidFrames:OnICCommThrottled(iccomm, strSender, idMessage)
+  self:CPrint("DEBUG - OnICCommThrottled")
+end
+
+function BetterRaidFrames:JoinICCommChannel()
+  self.timerJoinICCommChannel = nil
+
+  self.channel = ICCommLib.JoinChannel("VinceRF", ICCommLib.CodeEnumICCommChannelType.Group)
+  if not self.channel:IsReady() then
+      self.timerJoinICCommChannel = ApolloTimer.Create(3, false, "JoinICCommChannel", self)
+  else
+      self.channel:SetReceivedMessageFunction("OnICCommMessageReceived", self)
+      self.channel:SetSendMessageResultFunction("OnICCommSendMessageResult", self)
+      self.channel:SetThrottledFunction("OnICCommThrottled", self)
+      -- this triggers an initial sync from leader
+      if GroupLib.InGroup() then
+        self:ShareAddonVersion()
+      end
+  end
+end
+
+function BetterRaidFrames:Decode(str)
+  if type(str) ~= "string" then
+    return nil
+  end
+  local func = loadstring("return " .. str)
+  if not func then
+    return nil
+  end
+  setfenv(func, {})
+  local success, value = pcall(func)
+  return value
+end
+
+function BetterRaidFrames:IsLeader(strCharacterName)
+  local idx = self:CharacterToIdx(strCharacterName)
+  if not idx then return false end
+  local tMemberData = GroupLib.GetGroupMember(idx)
+  if not tMemberData then return false end
+  return tMemberData.bIsLeader
+end
+
+function BetterRaidFrames:GetGroupLeader()
+  local i = 1
+  while i <= GroupLib.GetMemberCount() do
+    local tMemberData = GroupLib.GetGroupMember(i)
+    if self:IsLeader(tMemberData.strCharacterName) then
+      return tMemberData
+    end
+    i = i + 1
+  end
 end
 
 function BetterRaidFrames:DoHPAndShieldResizing(tRaidMember, tMemberData)
@@ -2561,7 +2772,9 @@ end
 function BetterRaidFrames:Button_ShowRaidByRole(wndHandler, wndControl, eMouseButton)
   -- We cannot have category/role ordering and class ordering at the same time.
   self.wndConfig:FindChild("Button_ShowRaidByClass"):SetCheck(self.settings.bShowRaidByClass and not wndHandler:IsChecked())
+  self.wndConfig:FindChild("Button_ShowRaidByCustomCategories"):SetCheck(self.settings.bShowRaidByCustomCategories and not wndHandler:IsChecked())
   self.settings.bShowRaidByClass = self.settings.bShowRaidByClass and not wndHandler:IsChecked()
+  self.settings.bShowRaidByCustomCategories = self.settings.bShowRaidByCustomCategories and not wndHandler:IsChecked()
 
   self.settings.bShowRaidByRole = wndHandler:IsChecked()
   self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
@@ -2570,9 +2783,22 @@ end
 function BetterRaidFrames:Button_ShowRaidByClass(wndHandler, wndControl, eMouseButton)
   -- We cannot have category/role ordering and class ordering at the same time.
   self.wndConfig:FindChild("Button_ShowRaidByRole"):SetCheck(self.settings.bShowRaidByRole and not wndHandler:IsChecked())
+  self.wndConfig:FindChild("Button_ShowRaidByCustomCategories"):SetCheck(self.settings.bShowRaidByCustomCategories and not wndHandler:IsChecked())
   self.settings.bShowRaidByRole = self.settings.bShowRaidByRole and not wndHandler:IsChecked()
+  self.settings.bShowRaidByCustomCategories = self.settings.bShowRaidByCustomCategories and not wndHandler:IsChecked()
 
   self.settings.bShowRaidByClass = wndHandler:IsChecked()
+  self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
+end
+
+function BetterRaidFrames:Button_ShowRaidByCustomCategories(wndHandler, wndControl, eMouseButton)
+  -- We cannot have category/role ordering and class ordering at the same time.
+  self.wndConfig:FindChild("Button_ShowRaidByRole"):SetCheck(self.settings.bShowRaidByRole and not wndHandler:IsChecked())
+  self.wndConfig:FindChild("Button_ShowRaidByClass"):SetCheck(self.settings.bShowRaidByClass and not wndHandler:IsChecked())
+  self.settings.bShowRaidByRole = self.settings.bShowRaidByRole and not wndHandler:IsChecked()
+  self.settings.bShowRaidByClass = self.settings.bShowRaidByClass and not wndHandler:IsChecked()
+
+  self.settings.bShowRaidByCustomCategories = wndHandler:IsChecked()
   self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
 end
 
@@ -2605,6 +2831,25 @@ function BetterRaidFrames:RenameCharacter(args)
   self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyResize)
 end
 
+function BetterRaidFrames:OnCustomCategoryAssignment(args)
+  user = self:CharacterToIdx(args[2] .. " " .. args[3])
+  group = args[4]
+  if user and args[4] then
+    self.settings.ktCustomCategoryAssignments[string.lower(GroupLib.GetGroupMember(user).strCharacterName)] = args[4]
+    -- Don't add duplicates to the table
+    if not self:in_array(self.settings.ktCustomCategoriesToUse, args[4]) then
+      table.insert(self.settings.ktCustomCategoriesToUse, args[4])
+    end
+    self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
+  end
+end
+
+function BetterRaidFrames:OnCustomCategoryClearGroups()
+  self.settings.ktCustomCategoriesToUse     = DefaultSettings.ktCustomCategoriesToUse
+  self.settings.ktCustomCategoryAssignments = DefaultSettings.ktCustomCategoryAssignments
+  self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
+end
+
 function BetterRaidFrames:CPrint(str)
   ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Command, str, "")
 end
@@ -2617,6 +2862,8 @@ function BetterRaidFrames:OnSlashCmd(sCmd, sInput)
     self:CPrint("/brf colors - Customize Bar Colors")
     self:CPrint("/brf advanced - Advanced options, such as controlling timers")
     self:CPrint("/brf rename <orig_name> <new_name> - Rename characters in the raid frame. i.e. /brf rename Kami Nuvini Kami")
+    self:CPrint("/brf group <username> <groupname> - Add players to custom raid groups (BETA)")
+    self:CPrint("/brf cleargroups - Clear all previously defined custom raid groups")
   elseif option == "options" then
     self:OnConfigOn()
   elseif option == "colors" then
@@ -2628,6 +2875,10 @@ function BetterRaidFrames:OnSlashCmd(sCmd, sInput)
     for word in sInput:gmatch("%S+") do table.insert(args, word) end
     if args[1] and args[1] == "rename" then
       self:RenameCharacter(args)
+    elseif args[1] and args[1] == "group" then
+      self:OnCustomCategoryAssignment(args)
+    elseif args[1] and args[1] == "cleargroups" then
+      self:OnCustomCategoryClearGroups()
     end
   end
 end
