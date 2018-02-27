@@ -581,6 +581,8 @@ function BetterRaidFrames:RefreshSettings()
   if self.settings.bAutoLock_Combat ~= nil then
     self.wndRaidCustomizeLockInCombat:SetCheck(self.settings.bAutoLock_Combat) end
 
+  self:RefreshJoinRequestMethodSettings()
+
   -- Settings related to /brf options settings frame
   if self.settings.bShowHP_Full ~= nil then
     self.wndConfig:FindChild("Button_ShowHP_Full"):SetCheck(self.settings.bShowHP_Full) end
@@ -1768,6 +1770,41 @@ function BetterRaidFrames:OnConfigSetAsHealerToggle(wndHandler, wndControl)
   self.settings.bRole_DPS = false
   self.settings.bRole_Healer = wndControl:IsChecked()
   self.settings.bRole_Tank = false
+end
+
+function BetterRaidFrames:OnConfigSetJoinRequestMethodOpenToggle(wndHandler, wndControl)
+  if not GroupLib.AmILeader() then
+    self:CPrint("Error! Only Raid Leader is allowed to change this.")
+    self:RefreshJoinRequestMethodSettings()
+    return
+  end
+  GroupLib.SetJoinRequestMethod(0)
+end
+
+function BetterRaidFrames:OnConfigSetJoinRequestMethodNeutralToggle(wndHandler, wndControl)
+  if not GroupLib.AmILeader() then
+    self:CPrint("Error! Only Raid Leader is allowed to change this.")
+    self:RefreshJoinRequestMethodSettings()
+    return
+  end
+  GroupLib.SetJoinRequestMethod(1)
+end
+
+function BetterRaidFrames:OnConfigSetJoinRequestMethodClosedToggle(wndHandler, wndControl)
+  if not GroupLib.AmILeader() then
+    self:CPrint("Error! Only Raid Leader is allowed to change this.")
+    self:RefreshJoinRequestMethodSettings()
+    return
+  end
+  GroupLib.SetJoinRequestMethod(2)
+end
+
+function BetterRaidFrames:RefreshJoinRequestMethodSettings()
+  local wndRaidOptionsToggles = self.wndMain:FindChild("RaidOptions:SelfConfigJoinRequestMethod")
+  local JoinRequestMethod = GroupLib.GetJoinRequestMethod()
+  wndRaidOptionsToggles:FindChild("SelfConfigJoinRequestOpen"):SetCheck(JoinRequestMethod == 0 or false)
+  wndRaidOptionsToggles:FindChild("SelfConfigJoinRequestNeutral"):SetCheck(JoinRequestMethod == 1 or false)
+  wndRaidOptionsToggles:FindChild("SelfConfigJoinRequestClosed"):SetCheck(JoinRequestMethod == 2 or false)
 end
 
 function BetterRaidFrames:OnRaidMemberBtnClick(wndHandler, wndControl, eMouseButton) -- RaidMemberMouseHack
