@@ -867,6 +867,7 @@ end
 
 function BetterRaidFrames:OnGroup_Updated()
   if not GroupLib.InRaid() then return end
+  self:ShareAddonVersion()
 end
 
 function BetterRaidFrames:OnGroup_MemberFlagsChanged(nMemberIdx, bFromPromotion, tChangedFlags)
@@ -2064,6 +2065,10 @@ function BetterRaidFrames:GetCustomCategoryGroupLayout()
   return layout
 end
 
+function BetterRaidFrames:ShareGroupLayout()
+  self.channel:SendMessage(self:Serialize({layout = self:GetCustomCategoryGroupLayout()}))
+end
+
 function BetterRaidFrames:ShareAddonVersion()
   self.addonVersionAnnounceTimer = ApolloTimer.Create(2, false, "OnShareAddonVersionTimer", self)
 end
@@ -2080,6 +2085,9 @@ function BetterRaidFrames:OnICCommMessageReceived(channel, strMessage, idMessage
   if type(message) ~= "table" then
       return
   end
+  if message.version and GroupLib.AmILeader() then
+    self:ShareGroupLayout()
+  end
   if self:IsLeader(idMessage) then
       if message.layout then
         self:ImportGroupLayout(message.layout)
@@ -2090,11 +2098,11 @@ function BetterRaidFrames:OnICCommMessageReceived(channel, strMessage, idMessage
 end
 
 function BetterRaidFrames:OnICCommSendMessageResult(iccomm, eResult, idMessage)
-  self:CPrint("DEBUG - OnICCommSendMessageResult")
+--  self:CPrint("DEBUG - OnICCommSendMessageResult")
 end
 
 function BetterRaidFrames:OnICCommThrottled(iccomm, strSender, idMessage)
-  self:CPrint("DEBUG - OnICCommThrottled")
+--  self:CPrint("DEBUG - OnICCommThrottled")
 end
 
 function BetterRaidFrames:JoinICCommChannel()
@@ -2879,12 +2887,14 @@ function BetterRaidFrames:OnCustomCategoryAssignment(args)
     end
     self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
   end
+  self:ShareGroupLayout()
 end
 
 function BetterRaidFrames:OnCustomCategoryClearGroups()
   self.settings.ktCustomCategoriesToUse     = DefaultSettings.ktCustomCategoriesToUse
   self.settings.ktCustomCategoryAssignments = DefaultSettings.ktCustomCategoryAssignments
   self.nDirtyFlag = bit32.bor(self.nDirtyFlag, knDirtyGeneral, knDirtyResize)
+  self:ShareGroupLayout()
 end
 
 function BetterRaidFrames:CPrint(str)
@@ -2913,9 +2923,17 @@ function BetterRaidFrames:OnSlashCmd(sCmd, sInput)
     if args[1] and args[1] == "rename" then
       self:RenameCharacter(args)
     elseif args[1] and args[1] == "group" then
-      self:OnCustomCategoryAssignment(args)
+      if GroupLib.AmILeader() then
+        self:OnCustomCategoryAssignment(args)
+      else
+        self:CPrint("Error! Only raid leader may change this")
+      end
     elseif args[1] and args[1] == "cleargroups" then
-      self:OnCustomCategoryClearGroups()
+      if GroupLib.AmILeader() then
+        self:OnCustomCategoryClearGroups()
+      else
+        self:CPrint("Error! Only raid leader may change this")
+      end
     end
   end
 end
