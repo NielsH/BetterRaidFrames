@@ -2076,7 +2076,10 @@ end
 function BetterRaidFrames:OnShareAddonVersionTimer()
   if self.channel and self.channel:IsReady() then
     local tMemberData = self:GetGroupLeader()
-    self.channel:SendPrivateMessage(tMemberData.strCharacterName, self:Serialize({version = self:GetAddonVersion()}))
+    -- race condition when player leaves
+    if tMemberData then
+      self.channel:SendPrivateMessage(tMemberData.strCharacterName, self:Serialize({version = self:GetAddonVersion()}))
+    end
   end
 end
 
